@@ -1,0 +1,11 @@
+---
+- name: Verify Gateway conditions, NodePort requests and backend logs
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../scripts/verify_gateway.py"
+    executable: /usr/bin/python3
+  register: gateway_verification
+  changed_when: false
+
+- name: Show Gateway verification report and curl command
+  ansible.builtin.debug:
+    var: gateway_verification.stdout_lines

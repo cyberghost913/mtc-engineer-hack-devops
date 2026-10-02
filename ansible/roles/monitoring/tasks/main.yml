@@ -1,0 +1,169 @@
+---
+- name: Require exactly one target
+  ansible.builtin.assert:
+    that: groups['control_plane'] | length == 1
+
+- name: Require application and Gateway deployments
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s
+    -n {{ item.namespace }} get deployment {{ item.name }} -o name
+  loop:
+    - {namespace: demo, name: nginx}
+    - {namespace: envoy-gateway-system, name: envoy-gateway}
+  changed_when: false
+
+- name: Discover the actual single node and storage affinity label
+  ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s get nodes -o json
+  register: monitoring_nodes
+  changed_when: false
+
+- name: Validate single-node storage topology
+  ansible.builtin.assert:
+    that:
+      - (monitoring_nodes.stdout | from_json)['items'] | length == 1
+      - >-
+        'kubernetes.io/hostname' in
+        (monitoring_nodes.stdout | from_json)['items'][0].metadata.labels
+
+- name: Record the observed node label and intended monitoring lock
+  ansible.builtin.set_fact:
+    monitoring_node_hostname: "{{ (monitoring_nodes.stdout | from_json)['items'][0].metadata.labels['kubernetes.io/hostname'] }}"
+    monitoring_lock:
+      schema: 1
+      prometheus_image: "{{ prometheus_image }}"
+      nginx_exporter_image: "{{ nginx_exporter_image }}"
+      kube_state_metrics_image: "{{ kube_state_metrics_image }}"
+      node_name: "{{ (monitoring_nodes.stdout | from_json)['items'][0].metadata.name }}"
+      storage_path: /var/lib/devops-foundation/prometheus
+
+- name: Inspect previous monitoring lock
+  ansible.builtin.stat:
+    path: "{{ foundation_dir }}/monitoring-lock.json"
+  register: monitoring_lock_file
+
+- name: Read previous monitoring lock
+  ansible.builtin.slurp:
+    src: "{{ foundation_dir }}/monitoring-lock.json"
+  register: previous_monitoring_lock
+  when: monitoring_lock_file.stat.exists
+
+- name: Refuse implicit monitoring version or storage migration
+  ansible.builtin.assert:
+    that: previous_monitoring_lock.content | b64decode | from_json == monitoring_lock
+    fail_msg: Monitoring versions or storage changed; plan an explicit migration before continuing.
+  when: monitoring_lock_file.stat.exists
+
+- name: Inspect objects that this stage will manage
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s
+    get {{ item }} --ignore-not-found -o json
+  loop:
+    - namespace monitoring
+    - persistentvolume devops-prometheus
+    - clusterrole devops-prometheus
+    - clusterrolebinding devops-prometheus
+    - clusterrole devops-kube-state-metrics
+    - clusterrolebinding devops-kube-state-metrics
+    - serviceaccount prometheus -n monitoring
+    - serviceaccount kube-state-metrics -n monitoring
+    - persistentvolumeclaim prometheus-data -n monitoring
+    - configmap prometheus-config -n monitoring
+    - deployment prometheus -n monitoring
+    - deployment kube-state-metrics -n monitoring
+    - service prometheus -n monitoring
+    - service kube-state-metrics -n monitoring
+  register: existing_monitoring_objects
+  changed_when: false
+
+- name: Refuse to take over foreign monitoring objects
+  ansible.builtin.assert:
+    that: >-
+      (item.stdout | from_json).metadata.get('labels', {}).get('app.kubernetes.io/managed-by') == 'devops-foundation'
+    fail_msg: A monitoring object already exists and is not managed by this project.
+  loop: "{{ existing_monitoring_objects.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stdout | length > 0
+
+- name: Inspect local storage before changing permissions
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /var/lib/devops-foundation
+    - /var/lib/devops-foundation/prometheus
+  register: monitoring_storage
+
+- name: Require real storage directories
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or ((item.stat.isdir | default(false)) and not (item.stat.islnk | default(false)))
+  loop: "{{ monitoring_storage.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Refuse to adopt existing data without an installation lock
+  ansible.builtin.assert:
+    that: monitoring_lock_file.stat.exists or not monitoring_storage.results[1].stat.exists
+    fail_msg: The Prometheus data path already exists without a monitoring lock; inspect it manually.
+
+- name: Require at least 5 GiB free before the first monitoring install
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - "import os; s = os.statvfs('/var/lib'); assert s.f_bavail * s.f_frsize >= 5 * 1024**3, 'Need 5 GiB free in /var/lib'"
+  changed_when: false
+  when: not monitoring_lock_file.stat.exists
+
+- name: Save monitoring installation lock
+  ansible.builtin.copy:
+    content: "{{ monitoring_lock | to_nice_json }}\n"
+    dest: "{{ foundation_dir }}/monitoring-lock.json"
+    mode: '0600'
+
+- name: Prepare persistent data directory without recursively modifying existing data
+  ansible.builtin.file:
+    path: /var/lib/devops-foundation/prometheus
+    state: directory
+    owner: '65534'
+    group: '65534'
+    mode: '0770'
+
+- name: Copy namespace and RBAC manifests
+  ansible.builtin.copy:
+    src: "{{ item }}.yml"
+    dest: "{{ foundation_dir }}/monitoring-{{ item }}.yml"
+    mode: '0644'
+  loop: [namespace, rbac]
+
+- name: Reconcile namespace and RBAC
+  ansible.builtin.include_tasks: reconcile.yml
+  loop: [namespace, rbac]
+  loop_control:
+    loop_var: monitoring_component
+
+- name: Read exact configuration bytes for deterministic rollout checksums
+  ansible.builtin.set_fact:
+    prometheus_config: "{{ lookup('ansible.builtin.file', role_path ~ '/files/prometheus.yml', rstrip=false) }}"
+    prometheus_rules: "{{ lookup('ansible.builtin.file', role_path ~ '/files/rules.yml', rstrip=false) }}"
+
+- name: Render storage and workload manifests
+  ansible.builtin.template:
+    src: "{{ item }}.yml.j2"
+    dest: "{{ foundation_dir }}/monitoring-{{ item }}.yml"
+    mode: '0644'
+  loop: [storage, resources]
+
+- name: Reconcile persistent storage and monitoring workloads
+  ansible.builtin.include_tasks: reconcile.yml
+  loop: [storage, resources]
+  loop_control:
+    loop_var: monitoring_component
+
+- name: Wait for monitoring deployments and promtool init-container validation
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n monitoring
+    rollout status deployment/{{ item }} --timeout=300s
+  loop: [kube-state-metrics, prometheus]
+  changed_when: false

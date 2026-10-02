@@ -1,0 +1,29 @@
+[
+  {
+    "repository": "envoyproxy/gateway",
+    "tag": "v1.9.2",
+    "digest": "sha256:9d67017c442a70e6ae9f1a358e6c80eb653c67c2e40823d9a991e0daf37ba926",
+    "image": "docker.io/envoyproxy/gateway:v1.9.2@sha256:9d67017c442a70e6ae9f1a358e6c80eb653c67c2e40823d9a991e0daf37ba926",
+    "platforms": [
+      {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm64",
+        "os": "linux"
+      }
+    ],
+    "source": "https://registry-1.docker.io/v2/envoyproxy/gateway/manifests/v1.9.2",
+    "checked_on": "2026-10-01"
+  },
+  {
+    "repository": "envoyproxy/envoy",
+    "tag": "distroless-v1.39.1",
+    "image": "docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4",
+    "digest": "sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4",
+    "default_source": "https://github.com/envoyproxy/gateway/blob/v1.9.2/api/v1alpha1/shared_types.go",
+    "registry_verification": "Not completed: TLS handshake timeout on 2026-10-02; platforms and download still require confirmation",
+    "source_checked_on": "2026-10-01"
+  }
+]

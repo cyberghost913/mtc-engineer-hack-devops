@@ -1,0 +1,19 @@
+---
+cluster_name: devops-lab
+node_name: devops-control-plane
+cluster_address: "{{ ansible_facts['default_ipv4']['address'] }}"
+pod_cidr: 10.244.0.0/16
+service_cidr: 10.96.0.0/12
+foundation_dir: /etc/devops-foundation
+gateway_hostname: demo.local
+foundation_lock:
+  schema: 1
+  cluster_name: "{{ cluster_name }}"
+  node_name: "{{ node_name }}"
+  cluster_address: "{{ cluster_address }}"
+  pod_cidr: "{{ pod_cidr }}"
+  service_cidr: "{{ service_cidr }}"
+  kubernetes_version: "{{ kubernetes_version }}"
+  kubernetes_package_version: "{{ kubernetes_package_version }}"
+  containerd_package_version: "{{ containerd_package_version }}"
+  calico_version: "{{ calico_version }}"

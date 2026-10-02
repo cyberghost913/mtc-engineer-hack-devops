@@ -1,0 +1,8 @@
+---
+# Optional overrides. Copy to config.yml and use EXTRA_ARGS='-e @config.yml'.
+# cluster_address: 192.0.2.10  # An IPv4 address actually assigned to the VM.
+cluster_name: devops-lab
+node_name: devops-control-plane
+pod_cidr: 10.244.0.0/16
+service_cidr: 10.96.0.0/12
+gateway_hostname: demo.local

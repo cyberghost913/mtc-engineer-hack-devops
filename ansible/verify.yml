@@ -1,0 +1,10 @@
+---
+- name: Verify the foundation
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../versions.yml
+    - defaults.yml
+  roles:
+    - verify

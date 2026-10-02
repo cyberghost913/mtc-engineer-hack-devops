@@ -1,0 +1,71 @@
+---
+- name: Render kubeadm configuration
+  ansible.builtin.template:
+    src: kubeadm.yml.j2
+    dest: "{{ foundation_dir }}/kubeadm.yml"
+    mode: '0600'
+
+- name: Validate kubeadm configuration before using it
+  ansible.builtin.command: "kubeadm config validate --config {{ foundation_dir }}/kubeadm.yml"
+  changed_when: false
+
+- name: Detect initialized cluster
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_config
+
+- name: Initialize control plane only on the first run
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - --config
+      - "{{ foundation_dir }}/kubeadm.yml"
+      - --skip-token-print
+    creates: /etc/kubernetes/admin.conf
+  when: not admin_config.stat.exists
+  changed_when: true
+  no_log: true
+
+- name: Wait for API readiness
+  ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get --raw=/readyz
+  register: api_ready
+  changed_when: false
+  until: api_ready.rc == 0 and api_ready.stdout == 'ok'
+  retries: 40
+  delay: 3
+
+- name: Read control plane taints
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - get
+      - node
+      - "{{ node_name }}"
+      - -o
+      - json
+  register: node_before_network
+  changed_when: false
+  retries: 20
+  delay: 3
+  until: node_before_network.rc == 0
+
+- name: Allow workloads on the single lab node
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - taint
+      - node
+      - "{{ node_name }}"
+      - node-role.kubernetes.io/control-plane:NoSchedule-
+  when: >-
+    (node_before_network.stdout | from_json).spec.get('taints', [])
+    | selectattr('key', 'equalto', 'node-role.kubernetes.io/control-plane')
+    | selectattr('effect', 'equalto', 'NoSchedule') | list | length > 0
+  changed_when: true
+
+- name: Explain local administrative access
+  ansible.builtin.debug:
+    msg: 'On the VM use: sudo kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes'

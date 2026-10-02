@@ -1,0 +1,131 @@
+---
+- name: Validate Gateway hostname and inventory
+  ansible.builtin.assert:
+    that:
+      - groups['control_plane'] | length == 1
+      - gateway_hostname | length <= 253
+      - gateway_hostname is match('^[a-z0-9]+([.-][a-z0-9]+)*$')
+    fail_msg: Use one target and a lowercase DNS hostname such as demo.local.
+
+- name: Require the application Service
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s
+    -n demo get service nginx
+  changed_when: false
+
+- name: Define immutable Gateway installation settings
+  ansible.builtin.set_fact:
+    gateway_install_lock:
+      schema: 1
+      version: "{{ envoy_gateway_version }}"
+      gateway_api: "{{ gateway_api_version }}"
+      controller_image: "{{ envoy_gateway_image }}"
+      proxy_image: "{{ envoy_proxy_image }}"
+
+- name: Inspect Gateway installation lock
+  ansible.builtin.stat:
+    path: "{{ foundation_dir }}/gateway-lock.json"
+  register: gateway_lock_stat
+
+- name: Read existing Gateway installation lock
+  ansible.builtin.slurp:
+    src: "{{ foundation_dir }}/gateway-lock.json"
+  register: gateway_lock_saved
+  when: gateway_lock_stat.stat.exists
+
+- name: Refuse implicit Gateway upgrades
+  ansible.builtin.assert:
+    that: gateway_lock_saved.content | b64decode | from_json == gateway_install_lock
+    fail_msg: Gateway installation versions differ. An explicit migration is required.
+  when: gateway_lock_stat.stat.exists
+
+- name: Inspect existing controller namespace
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf get namespace envoy-gateway-system --ignore-not-found -o json
+  register: existing_gateway_namespace
+  changed_when: false
+
+- name: Inspect cluster CRDs
+  ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf get crds -o json
+  register: existing_gateway_crds
+  changed_when: false
+  when: not gateway_lock_stat.stat.exists
+
+- name: Refuse to overwrite an existing unmanaged Gateway installation
+  ansible.builtin.assert:
+    that:
+      - existing_gateway_namespace.stdout | length == 0
+      - >-
+        (existing_gateway_crds.stdout | from_json)['items'] | map(attribute='metadata.name')
+        | select('search', '\.(gateway\.networking\.k8s\.io|gateway\.envoyproxy\.io)$') | list | length == 0
+    fail_msg: Existing Gateway namespace or CRDs detected. This profile requires a fresh foundation.
+  when: not gateway_lock_stat.stat.exists
+
+- name: Preserve installation settings before the first apply
+  ansible.builtin.copy:
+    content: "{{ gateway_install_lock | to_nice_json }}\n"
+    dest: "{{ foundation_dir }}/gateway-lock.json"
+    mode: '0600'
+
+- name: Copy the official Gateway installation bundle
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../vendor/envoy-gateway-{{ envoy_gateway_version }}.yaml"
+    dest: "{{ foundation_dir }}/gateway-upstream.yaml"
+    mode: '0644'
+
+- name: Prepare ordered Gateway installation manifests
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../scripts/prepare_gateway.py
+      {{ foundation_dir }}/gateway-upstream.yaml {{ foundation_dir }}/gateway
+      {{ envoy_gateway_image | quote }} {{ envoy_gateway_version | quote }}
+    executable: /usr/bin/python3
+  register: gateway_preparation
+  changed_when: gateway_preparation.stdout | trim == 'CHANGED'
+
+- name: Reconcile controller namespace and CRDs
+  ansible.builtin.include_tasks: reconcile.yml
+  loop: [namespace, crds]
+  vars:
+    gateway_manifest: "{{ foundation_dir }}/gateway/{{ item }}.yaml"
+
+- name: Wait for Gateway CRDs
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf wait crd
+    -l app.kubernetes.io/part-of=devops-gateway --for=condition=Established --timeout=120s
+  changed_when: false
+
+- name: Reconcile controller resources and the certificate job
+  ansible.builtin.include_tasks: reconcile.yml
+  loop: [controller, certgen]
+  vars:
+    gateway_manifest: "{{ foundation_dir }}/gateway/{{ item }}.yaml"
+
+- name: Wait for internal certificates
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n envoy-gateway-system
+    wait job/eg-gateway-helm-certgen --for=condition=Complete --timeout=300s
+  changed_when: false
+
+- name: Wait for the Gateway controller
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n envoy-gateway-system
+    rollout status deployment/envoy-gateway --timeout=300s
+  changed_when: false
+
+- name: Render Gateway API resources
+  ansible.builtin.template:
+    src: resources.yml.j2
+    dest: "{{ foundation_dir }}/gateway/routes.yaml"
+    mode: '0644'
+
+- name: Reconcile the proxy and HTTP route
+  ansible.builtin.include_tasks: reconcile.yml
+  vars:
+    gateway_manifest: "{{ foundation_dir }}/gateway/routes.yaml"
+
+- name: Save request settings for verification
+  ansible.builtin.copy:
+    content: "{{ {'hostname': gateway_hostname} | to_nice_json }}\n"
+    dest: "{{ foundation_dir }}/gateway-settings.json"
+    mode: '0644'

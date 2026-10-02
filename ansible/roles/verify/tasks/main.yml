@@ -1,0 +1,11 @@
+---
+- name: Run bounded cluster checks including temporary workload
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../scripts/verify-cluster.sh {{ probe_image }}"
+    executable: /bin/bash
+  register: verification
+  changed_when: false
+
+- name: Show verification report
+  ansible.builtin.debug:
+    var: verification.stdout_lines

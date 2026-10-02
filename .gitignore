@@ -1,0 +1,10 @@
+.venv/
+.venv-docs/
+.ansible/
+__pycache__/
+*.pyc
+inventory.ini
+config.yml
+artifacts/
+*.retry
+.DS_Store

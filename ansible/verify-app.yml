@@ -1,0 +1,9 @@
+---
+- name: Verify the demonstration application
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../versions.yml
+  roles:
+    - verify_app

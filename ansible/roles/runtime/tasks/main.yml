@@ -1,0 +1,46 @@
+---
+- name: Resolve sandbox image from the pinned kubeadm version
+  ansible.builtin.command: "kubeadm config images list --kubernetes-version v{{ kubernetes_version }}"
+  register: kubeadm_images
+  changed_when: false
+
+- name: Create runtime configuration directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: '0755'
+
+- name: Configure the CRI diagnostic client
+  ansible.builtin.copy:
+    dest: /etc/crictl.yaml
+    mode: '0644'
+    content: |
+      runtime-endpoint: unix:///run/containerd/containerd.sock
+      image-endpoint: unix:///run/containerd/containerd.sock
+      timeout: 10
+      debug: false
+
+- name: Configure containerd with CRI and systemd cgroups
+  ansible.builtin.template:
+    src: config.toml.j2
+    dest: /etc/containerd/config.toml
+    mode: '0644'
+  notify: Restart containerd
+
+- name: Apply runtime configuration before initializing Kubernetes
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable runtime and kubelet
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  loop: [containerd, kubelet]
+
+- name: Wait for the CRI plugin
+  ansible.builtin.command: ctr plugins ls
+  register: runtime_plugins
+  changed_when: false
+  until: runtime_plugins.stdout is search('io.containerd.cri.v1\s+runtime\s+.*ok')
+  retries: 20
+  delay: 3

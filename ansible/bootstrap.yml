@@ -1,0 +1,16 @@
+---
+- name: Bootstrap the Ubuntu Kubernetes lab
+  hosts: control_plane
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - ../versions.yml
+    - defaults.yml
+  roles:
+    - preflight
+    - host
+    - runtime
+    - cluster
+    - network
+    - verify

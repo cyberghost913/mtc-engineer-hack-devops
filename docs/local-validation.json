@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-02",
+  "environment": "macOS; local static checks only",
+  "checks": {
+    "ansible_syntax": "PASS (11 playbooks)",
+    "yaml_lint": "PASS",
+    "vendor_sha256": "PASS (5 files)",
+    "shell_syntax": "PASS",
+    "unit_tests": "PASS (90 tests; 19 logging tests also rerun after temporary-path portability fix)",
+    "http_probe_shell_syntax": "PASS",
+    "image_registry": "Nginx and BusyBox index digests verified; amd64 and arm64 present",
+    "gateway_renderer_cli": "PASS (CHANGED then UNCHANGED)",
+    "gateway_controller_registry": "Digest verified; amd64 and arm64 present",
+    "monitoring_registry": "PASS (Prometheus, nginx exporter and kube-state-metrics index digests; linux amd64 and arm64 present)",
+    "promtool": "PASS (3.13.3 darwin-amd64: config syntax, 7 alert rules, 3 rule test scenarios)",
+    "logging_registry": "PASS (Fluentd image index digest; linux amd64 and arm64 present)",
+    "logging_ruby_syntax": "PASS (health.rb with local Ruby 2.6.10)",
+    "fluentd_config_structure": "PASS (v1.19.3 V1Parser sources, unused Yajl require omitted for syntax-only local check; ENV interpolation and CRI regexp checked; not plugin dry-run)"
+  },
+  "not_run": [
+    "Ubuntu 24.04 deployment",
+    "second bootstrap on an existing cluster",
+    "post-reboot verification",
+    "amd64/arm64 runtime checks",
+    "Nginx container configuration test (nginx -t)",
+    "Application deployment and HTTP/log verification on Kubernetes",
+    "Application second deploy and config rollout",
+    "Gateway deployment and certificate job on Kubernetes",
+    "NodePort HTTP and backend-log verification on Ubuntu",
+    "External client access to Gateway",
+    "Envoy Proxy registry digest verification (TLS handshake timeout)",
+    "Prometheus, kube-state-metrics and Nginx exporter deployment on Kubernetes",
+    "Prometheus live target discovery, sample freshness and API verification on Ubuntu",
+    "Monitoring repeat deployment without Pod replacement",
+    "Prometheus history retention after Pod replacement and VM reboot",
+    "Live alert firing and recovery during a controlled failure",
+    "Fluentd container dry-run with all plugins on Ubuntu",
+    "Fluentd CRI collection and fresh Gateway access/error delivery to archive on Kubernetes",
+    "Fluentd repeat deploy, Pod replacement, log rotation and VM reboot recovery",
+    "Live Fluentd output failure/retry/backpressure and duplicate/loss assessment",
+    "Systemd retention timer execution on Ubuntu"
+  ],
+  "promtool_evidence": {
+    "source": "https://github.com/prometheus/prometheus/releases/download/v3.13.3/prometheus-3.13.3.darwin-amd64.tar.gz",
+    "sha256": "171d890dbb83ba5d4758a1e8f117e8803cd70f86af798ff881d94df5603cb505",
+    "sha256_verified": true
+  }
+}

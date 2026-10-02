@@ -1,0 +1,184 @@
+---
+- name: Require exactly one target
+  ansible.builtin.assert:
+    that: groups['control_plane'] | length == 1
+
+- name: Require application and Gateway before adding logging
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s
+    -n demo get {{ item }} -o name
+  loop: [deployment/nginx, gateway/demo-gateway]
+  changed_when: false
+
+- name: Discover actual node identity
+  ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s get nodes -o json
+  register: logging_nodes
+  changed_when: false
+
+- name: Require one node with a hostname label
+  ansible.builtin.assert:
+    that:
+      - (logging_nodes.stdout | from_json)['items'] | length == 1
+      - "'kubernetes.io/hostname' in (logging_nodes.stdout | from_json)['items'][0].metadata.labels"
+
+- name: Record intended logging configuration
+  ansible.builtin.set_fact:
+    logging_node_hostname: "{{ (logging_nodes.stdout | from_json)['items'][0].metadata.labels['kubernetes.io/hostname'] }}"
+    logging_lock:
+      schema: 1
+      fluentd_image: "{{ fluentd_image }}"
+      node_name: "{{ (logging_nodes.stdout | from_json)['items'][0].metadata.name }}"
+      storage_path: /var/lib/devops-foundation/fluentd
+      retention_hours: 72
+
+- name: Inspect installation lock and retention units
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - "{{ foundation_dir }}/logging-lock.json"
+    - /etc/systemd/system/devops-log-retention.service
+    - /etc/systemd/system/devops-log-retention.timer
+  register: logging_installation
+
+- name: Refuse foreign retention units or symlinks
+  ansible.builtin.assert:
+    that:
+      - not (item.stat.islnk | default(false))
+      - logging_installation.results[0].stat.exists or not item.stat.exists
+    fail_msg: Logging lock or retention units conflict with this installation; inspect them manually.
+  loop: "{{ logging_installation.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read previous logging lock
+  ansible.builtin.slurp:
+    src: "{{ foundation_dir }}/logging-lock.json"
+  register: previous_logging_lock
+  when: logging_installation.results[0].stat.exists
+
+- name: Refuse implicit logging migration
+  ansible.builtin.assert:
+    that: previous_logging_lock.content | b64decode | from_json == logging_lock
+    fail_msg: Logging version, node, storage or retention changed; plan an explicit migration.
+  when: logging_installation.results[0].stat.exists
+
+- name: Inspect Kubernetes resources
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s
+    get {{ item }} --ignore-not-found -o json
+  loop:
+    - namespace logging
+    - configmap fluentd-config -n logging
+    - daemonset fluentd -n logging
+  register: logging_objects
+  changed_when: false
+
+- name: Refuse to adopt foreign logging resources
+  ansible.builtin.assert:
+    that: >-
+      (item.stdout | from_json).metadata.get('labels', {}).get('app.kubernetes.io/managed-by') == 'devops-foundation'
+  loop: "{{ logging_objects.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stdout | length > 0
+
+- name: Inspect data directories before changing permissions
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /var/lib/devops-foundation
+    - /var/lib/devops-foundation/fluentd
+    - /var/lib/devops-foundation/fluentd/archive
+    - /var/lib/devops-foundation/fluentd/buffer
+    - /var/lib/devops-foundation/fluentd/positions
+  register: logging_directories
+
+- name: Require ordinary directories
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or ((item.stat.isdir | default(false)) and not (item.stat.islnk | default(false)))
+  loop: "{{ logging_directories.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Refuse existing Fluentd state without an installation lock
+  ansible.builtin.assert:
+    that: logging_installation.results[0].stat.exists or not logging_directories.results[1].stat.exists
+
+- name: Require 1 GiB free before first install
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - "import os; s = os.statvfs('/var/lib'); assert s.f_bavail * s.f_frsize >= 1024**3, 'Need 1 GiB free in /var/lib'"
+  when: not logging_installation.results[0].stat.exists
+  changed_when: false
+
+- name: Save logging installation lock
+  ansible.builtin.copy:
+    content: "{{ logging_lock | to_nice_json }}\n"
+    dest: "{{ foundation_dir }}/logging-lock.json"
+    mode: '0600'
+
+- name: Prepare persistent state directories without recursive permission changes
+  ansible.builtin.file:
+    path: "/var/lib/devops-foundation/fluentd{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop: ['', /archive, /buffer, /positions]
+
+- name: Install archive retention script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../scripts/cleanup_logs.py"
+    dest: "{{ foundation_dir }}/cleanup_logs.py"
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install retention service and timer
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: '0644'
+  loop: [devops-log-retention.service, devops-log-retention.timer]
+  register: retention_units
+
+- name: Enable periodic retention
+  ansible.builtin.systemd_service:
+    name: devops-log-retention.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ retention_units.changed }}"
+
+- name: Read exact Fluentd configuration and health check for rollout checksums
+  ansible.builtin.set_fact:
+    fluentd_config: "{{ lookup('ansible.builtin.file', role_path ~ '/files/fluent.conf', rstrip=false) }}"
+    fluentd_health: "{{ lookup('ansible.builtin.file', role_path ~ '/files/health.rb', rstrip=false) }}"
+
+- name: Copy namespace manifest
+  ansible.builtin.copy:
+    src: namespace.yml
+    dest: "{{ foundation_dir }}/logging-namespace.yml"
+    mode: '0644'
+
+- name: Render collector manifest
+  ansible.builtin.template:
+    src: resources.yml.j2
+    dest: "{{ foundation_dir }}/logging-resources.yml"
+    mode: '0644'
+
+- name: Reconcile logging namespace and collector
+  ansible.builtin.include_tasks: reconcile.yml
+  loop: [namespace, resources]
+  loop_control:
+    loop_var: logging_component
+
+- name: Wait for collector and its Fluentd configuration check
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n logging
+    rollout status daemonset/fluentd --timeout=300s
+  changed_when: false

@@ -1,0 +1,12 @@
+---
+- name: Add Fluentd collection and verify delivered application logs
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - ../versions.yml
+    - defaults.yml
+  roles:
+    - logging
+    - verify_logging

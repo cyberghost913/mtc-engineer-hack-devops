@@ -1,0 +1,201 @@
+---
+rule_files:
+  - ../ansible/roles/monitoring/files/rules.yml
+evaluation_interval: 15s
+tests:
+  - name: healthy lab has no firing alerts
+    interval: 15s
+    input_series:
+      - series: up{job="prometheus"}
+        values: 1x20
+      - series: up{job="kube-state-metrics"}
+        values: 1x20
+      - series: up{job="kubernetes-apiserver"}
+        values: 1x20
+      - series: up{job="kubelet"}
+        values: 1x20
+      - series: up{job="kubernetes-resources"}
+        values: 1x20
+      - series: up{job="envoy"}
+        values: 1x20
+      - series: up{job="nginx",pod="nginx-a"}
+        values: 1x20
+      - series: nginx_up{job="nginx",pod="nginx-a"}
+        values: 1x20
+      - series: up{job="nginx",pod="nginx-b"}
+        values: 1x20
+      - series: nginx_up{job="nginx",pod="nginx-b"}
+        values: 1x20
+      - series: kube_node_status_condition{node="node-a",condition="Ready",status="true"}
+        values: 1x20
+      - series: kube_deployment_status_replicas_available{namespace="demo",deployment="nginx"}
+        values: 2x20
+      - series: kube_deployment_spec_replicas{namespace="demo",deployment="nginx"}
+        values: 2x20
+      - series: kube_pod_container_status_restarts_total{namespace="demo",pod="nginx-a",container="nginx"}
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ScrapeTargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: MonitoringJobMissing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NginxBackendDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NginxReplicaMetricsMissing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NodeNotReady
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NginxReplicasUnavailable
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: ApplicationContainerRestarts
+        exp_alerts: []
+  - name: known failures fire after their hold periods
+    interval: 15s
+    input_series:
+      - series: up{job="prometheus"}
+        values: 1x20
+      - series: up{job="kube-state-metrics"}
+        values: 1x20
+      - series: up{job="kubernetes-apiserver"}
+        values: 1x20
+      - series: up{job="kubelet"}
+        values: 1x20
+      - series: up{job="kubernetes-resources"}
+        values: 1x20
+      - series: up{job="envoy"}
+        values: 1x20
+      - series: up{job="nginx",pod="nginx-a"}
+        values: 1x20
+      - series: nginx_up{job="nginx",pod="nginx-a"}
+        values: '0x20'
+      - series: up{job="nginx",pod="nginx-b"}
+        values: '0x20'
+      - series: nginx_up{job="nginx",pod="nginx-b"}
+        values: 1x20
+      - series: kube_node_status_condition{node="node-a",condition="Ready",status="true"}
+        values: '0x20'
+      - series: kube_deployment_status_replicas_available{namespace="demo",deployment="nginx"}
+        values: 1x20
+      - series: kube_deployment_spec_replicas{namespace="demo",deployment="nginx"}
+        values: 2x20
+      - series: kube_pod_container_status_restarts_total{namespace="demo",pod="nginx-a",container="nginx"}
+        values: 0+1x20
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ScrapeTargetDown
+        exp_alerts:
+          - exp_labels:
+              job: nginx
+              pod: nginx-b
+              severity: warning
+            exp_annotations:
+              summary: A discovered monitoring target cannot be scraped.
+      - eval_time: 5m
+        alertname: MonitoringJobMissing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NginxBackendDown
+        exp_alerts:
+          - exp_labels:
+              job: nginx
+              pod: nginx-a
+              severity: critical
+            exp_annotations:
+              summary: The exporter cannot read the local Nginx stub_status endpoint.
+      - eval_time: 5m
+        alertname: NginxReplicaMetricsMissing
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NodeNotReady
+        exp_alerts:
+          - exp_labels:
+              node: node-a
+              condition: Ready
+              status: 'true'
+              severity: critical
+            exp_annotations:
+              summary: A Kubernetes node is not Ready.
+      - eval_time: 5m
+        alertname: NginxReplicasUnavailable
+        exp_alerts:
+          - exp_labels:
+              namespace: demo
+              deployment: nginx
+              severity: warning
+            exp_annotations:
+              summary: Nginx has fewer available replicas than requested.
+      - eval_time: 5m
+        alertname: ApplicationContainerRestarts
+        exp_alerts:
+          - exp_labels:
+              namespace: demo
+              pod: nginx-a
+              container: nginx
+              severity: warning
+            exp_annotations:
+              summary: An application container restarted more than twice in ten minutes.
+  - name: missing discovery cannot silently pass
+    interval: 15s
+    input_series:
+      - series: up{job="prometheus"}
+        values: 1x20
+      - series: up{job="kube-state-metrics"}
+        values: 1x20
+      - series: up{job="kubernetes-apiserver"}
+        values: 1x20
+      - series: up{job="kubelet"}
+        values: 1x20
+      - series: up{job="kubernetes-resources"}
+        values: 1x20
+      - series: up{job="nginx",pod="nginx-a"}
+        values: 1x20
+      - series: nginx_up{job="nginx",pod="nginx-a"}
+        values: 1x20
+      - series: nginx_up{job="nginx",pod="nginx-b"}
+        values: 1x20
+      - series: kube_node_status_condition{node="node-a",condition="Ready",status="true"}
+        values: 1x20
+      - series: kube_deployment_status_replicas_available{namespace="demo",deployment="nginx"}
+        values: 2x20
+      - series: kube_deployment_spec_replicas{namespace="demo",deployment="nginx"}
+        values: 2x20
+      - series: kube_pod_container_status_restarts_total{namespace="demo",pod="nginx-a",container="nginx"}
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ScrapeTargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: MonitoringJobMissing
+        exp_alerts:
+          - exp_labels:
+              job: envoy
+              severity: critical
+            exp_annotations:
+              summary: An expected scrape job has no targets.
+      - eval_time: 5m
+        alertname: NginxBackendDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NginxReplicaMetricsMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: Fewer than two Nginx replicas are discovered by Prometheus.
+      - eval_time: 5m
+        alertname: NodeNotReady
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NginxReplicasUnavailable
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: ApplicationContainerRestarts
+        exp_alerts: []

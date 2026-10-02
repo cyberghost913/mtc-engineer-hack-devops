@@ -1,0 +1,62 @@
+---
+- name: Copy original pinned Calico manifest
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../vendor/calico-{{ calico_version }}.yaml"
+    dest: "{{ foundation_dir }}/calico-upstream.yaml"
+    mode: '0644'
+
+- name: Render VXLAN Calico configuration
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../scripts/render_calico.py
+      {{ foundation_dir }}/calico-upstream.yaml
+      {{ foundation_dir }}/calico.yaml {{ pod_cidr }}
+    executable: /usr/bin/python3
+  register: calico_render
+  changed_when: calico_render.stdout | trim == 'CHANGED'
+
+- name: Detect Calico manifest differences
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - diff
+      - --server-side
+      - --field-manager=devops-foundation
+      - -f
+      - "{{ foundation_dir }}/calico.yaml"
+  register: calico_diff
+  changed_when: false
+  failed_when: calico_diff.rc not in [0, 1]
+
+- name: Apply Calico declaratively
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - apply
+      - --server-side
+      - --field-manager=devops-foundation
+      - -f
+      - "{{ foundation_dir }}/calico.yaml"
+  when: calico_diff.rc == 1
+  changed_when: true
+
+- name: Wait for Calico node networking
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system
+    rollout status daemonset/calico-node --timeout=300s
+  changed_when: false
+
+- name: Wait for node readiness
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf
+    wait node/{{ node_name }} --for=condition=Ready --timeout=180s
+  changed_when: false
+
+- name: Wait for networking controllers and DNS
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system
+    rollout status deployment/{{ item }} --timeout=180s
+  loop: [calico-kube-controllers, coredns]
+  changed_when: false

@@ -1,0 +1,3 @@
+# Optional tooling for rebuilding the solution passport; not needed on the cluster VM.
+reportlab==4.4.9
+pypdf==6.10.0

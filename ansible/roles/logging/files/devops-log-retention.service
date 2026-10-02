@@ -1,0 +1,15 @@
+[Unit]
+Description=Expire finalized DevOps Fluentd archives older than 72 hours
+ConditionPathIsDirectory=/var/lib/devops-foundation/fluentd/archive
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /etc/devops-foundation/cleanup_logs.py
+User=root
+Group=root
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/devops-foundation/fluentd/archive

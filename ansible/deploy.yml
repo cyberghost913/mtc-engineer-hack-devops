@@ -1,0 +1,18 @@
+---
+- name: Deploy the application, Gateway API, monitoring and logging
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - ../versions.yml
+    - defaults.yml
+  roles:
+    - application
+    - verify_app
+    - gateway
+    - verify_gateway
+    - monitoring
+    - verify_monitoring
+    - logging
+    - verify_logging

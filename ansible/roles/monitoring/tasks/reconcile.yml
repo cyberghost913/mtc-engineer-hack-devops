@@ -1,0 +1,15 @@
+---
+- name: "Detect changes in monitoring {{ monitoring_component }}"
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf diff --server-side
+    --field-manager=devops-foundation -f {{ foundation_dir }}/monitoring-{{ monitoring_component }}.yml
+  register: monitoring_diff
+  changed_when: false
+  failed_when: monitoring_diff.rc not in [0, 1]
+
+- name: "Apply changes in monitoring {{ monitoring_component }}"
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side
+    --field-manager=devops-foundation -f {{ foundation_dir }}/monitoring-{{ monitoring_component }}.yml
+  when: monitoring_diff.rc == 1
+  changed_when: true

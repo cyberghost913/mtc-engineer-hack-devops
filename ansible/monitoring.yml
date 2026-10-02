@@ -1,0 +1,14 @@
+---
+- name: Add Prometheus and exporters to an existing Gateway installation
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - ../versions.yml
+    - defaults.yml
+  roles:
+    - application
+    - verify_app
+    - monitoring
+    - verify_monitoring

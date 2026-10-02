@@ -1,0 +1,17 @@
+---
+- name: Require exactly one target
+  ansible.builtin.assert:
+    that:
+      - groups['control_plane'] | length == 1
+    fail_msg: This foundation supports exactly one dedicated Ubuntu VM.
+
+- name: Run read-only host checks
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../scripts/preflight.py {{ foundation_lock | to_json | b64encode }}"
+    executable: /usr/bin/python3
+  register: preflight_result
+  changed_when: false
+
+- name: Show preflight result
+  ansible.builtin.debug:
+    var: preflight_result.stdout_lines

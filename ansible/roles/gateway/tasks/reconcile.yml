@@ -1,0 +1,27 @@
+---
+- name: "Detect changes in {{ gateway_manifest }}"
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - diff
+      - --server-side
+      - --field-manager=devops-foundation
+      - -f
+      - "{{ gateway_manifest }}"
+  register: gateway_diff
+  changed_when: false
+  failed_when: gateway_diff.rc not in [0, 1]
+
+- name: "Apply changes in {{ gateway_manifest }}"
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --kubeconfig=/etc/kubernetes/admin.conf
+      - apply
+      - --server-side
+      - --field-manager=devops-foundation
+      - -f
+      - "{{ gateway_manifest }}"
+  when: gateway_diff.rc == 1
+  changed_when: true

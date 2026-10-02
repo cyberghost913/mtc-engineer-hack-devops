@@ -1,0 +1,22 @@
+[
+  {
+    "image": "docker.io/fluent/fluentd:v1.19.3-debian-2.2@sha256:b6794cd63b153a2cbc2f7c447ac5036597a3c093b393e786c4fff8abe2c4b911",
+    "platforms": [
+      {
+        "architecture": "amd64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      {
+        "architecture": "arm",
+        "os": "linux",
+        "variant": "v7"
+      }
+    ],
+    "verified_at": "2026-10-02",
+    "source": "https://registry-1.docker.io/v2/fluent/fluentd/manifests/v1.19.3-debian-2.2"
+  }
+]

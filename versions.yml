@@ -1,0 +1,24 @@
+---
+kubernetes_version: 1.35.9
+kubernetes_minor: v1.35
+kubernetes_package_version: 1.35.9-1.1
+containerd_package_version: 2.2.6-1~ubuntu.24.04~noble
+calico_version: v3.32.2
+probe_image: >-
+  docker.io/library/busybox:1.37.0@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+nginx_image: >-
+  docker.io/nginxinc/nginx-unprivileged:1.30.5-alpine@sha256:ed04ec1ff34502c339ee5c3ae3f855442398edc1d05591e2b98981dcbbd20b1e
+envoy_gateway_version: v1.9.2
+gateway_api_version: v1.6.1
+envoy_gateway_image: >-
+  docker.io/envoyproxy/gateway:v1.9.2@sha256:9d67017c442a70e6ae9f1a358e6c80eb653c67c2e40823d9a991e0daf37ba926
+envoy_proxy_image: >-
+  docker.io/envoyproxy/envoy:distroless-v1.39.1@sha256:eb2c01c13125d1629637cb4e4cce7207009fb7cc2c8027f9742758549d15b6f4
+prometheus_image: >-
+  docker.io/prom/prometheus:v3.13.3@sha256:6976aa8a60fec930796ce5772b8d12da7a318a5daa8d40d69c5c7819a05eeed7
+nginx_exporter_image: >-
+  docker.io/nginx/nginx-prometheus-exporter:1.5.3@sha256:85666e7fde7e253f1c6d978f9a961245df4c9cdb7677e1866d9bb28e8f9ee41d
+kube_state_metrics_image: >-
+  registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1@sha256:85108987d044b18a098126732f98602df408888c0f7d456241f5abefb9744bc1
+fluentd_image: >-
+  docker.io/fluent/fluentd:v1.19.3-debian-2.2@sha256:b6794cd63b153a2cbc2f7c447ac5036597a3c093b393e786c4fff8abe2c4b911

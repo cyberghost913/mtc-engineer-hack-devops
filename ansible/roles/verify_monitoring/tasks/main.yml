@@ -1,0 +1,11 @@
+---
+- name: Verify monitoring through the Prometheus API
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../scripts/verify_monitoring.py"
+    executable: /usr/bin/python3
+  register: monitoring_verification
+  changed_when: false
+
+- name: Show monitoring verification report
+  ansible.builtin.debug:
+    var: monitoring_verification.stdout_lines

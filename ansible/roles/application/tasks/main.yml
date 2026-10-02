@@ -1,0 +1,90 @@
+---
+- name: Require exactly one target
+  ansible.builtin.assert:
+    that: groups['control_plane'] | length == 1
+
+- name: Require a previously initialized foundation
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/kubernetes/admin.conf
+    - "{{ foundation_dir }}/lock.json"
+  register: foundation_files
+
+- name: Stop when bootstrap has not completed
+  ansible.builtin.assert:
+    that: item.stat.exists
+    fail_msg: Run make bootstrap on the Ubuntu VM first.
+  loop: "{{ foundation_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Check API readiness
+  ansible.builtin.command: kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s get --raw=/readyz
+  changed_when: false
+
+- name: Inspect existing demo namespace
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf --request-timeout=20s
+    get namespace demo --ignore-not-found -o json
+  register: demo_namespace
+  changed_when: false
+
+- name: Refuse to take over an unmanaged namespace
+  ansible.builtin.assert:
+    that: >-
+      (demo_namespace.stdout | from_json).metadata.get('labels', {}).get('app.kubernetes.io/managed-by') == 'devops-foundation'
+    fail_msg: Namespace demo already exists and is not managed by this project.
+  when: demo_namespace.stdout | length > 0
+
+- name: Copy namespace declaration
+  ansible.builtin.copy:
+    src: namespace.yml
+    dest: "{{ foundation_dir }}/app-namespace.yml"
+    mode: '0644'
+
+- name: Detect namespace configuration changes
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf diff --server-side
+    --field-manager=devops-foundation -f {{ foundation_dir }}/app-namespace.yml
+  register: namespace_diff
+  changed_when: false
+  failed_when: namespace_diff.rc not in [0, 1]
+
+- name: Reconcile the managed application namespace
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side
+    --field-manager=devops-foundation -f {{ foundation_dir }}/app-namespace.yml
+  when: namespace_diff.rc == 1
+  changed_when: true
+
+- name: Read the exact Nginx configuration used for the checksum
+  ansible.builtin.set_fact:
+    nginx_config: "{{ lookup('ansible.builtin.file', role_path ~ '/files/nginx.conf', rstrip=false) }}"
+
+- name: Render application resources
+  ansible.builtin.template:
+    src: resources.yml.j2
+    dest: "{{ foundation_dir }}/app.yml"
+    mode: '0644'
+
+- name: Detect application changes
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf diff --server-side
+    --field-manager=devops-foundation -f {{ foundation_dir }}/app.yml
+  register: app_diff
+  changed_when: false
+  failed_when: app_diff.rc not in [0, 1]
+
+- name: Apply application changes
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf apply --server-side
+    --field-manager=devops-foundation -f {{ foundation_dir }}/app.yml
+  when: app_diff.rc == 1
+  changed_when: true
+
+- name: Wait for both application replicas
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf -n demo
+    rollout status deployment/nginx --timeout=300s
+  changed_when: false

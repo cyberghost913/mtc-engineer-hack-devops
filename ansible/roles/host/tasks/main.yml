@@ -1,0 +1,133 @@
+---
+- name: Create foundation configuration directory
+  ansible.builtin.file:
+    path: "{{ foundation_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Record immutable cluster settings before modifying the host
+  ansible.builtin.copy:
+    content: "{{ foundation_lock | to_nice_json }}\n"
+    dest: "{{ foundation_dir }}/lock.json"
+    mode: '0600'
+
+- name: Install operating system prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gpg
+      - conntrack
+      - ipset
+      - iptables
+      - socat
+      - python3-yaml
+    update_cache: true
+    cache_valid_time: 3600
+    state: present
+    lock_timeout: 120
+
+- name: Inspect active swap
+  ansible.builtin.command: swapon --show --noheadings
+  register: active_swap
+  changed_when: false
+
+- name: Disable active swap
+  ansible.builtin.command: swapoff --all
+  when: active_swap.stdout | length > 0
+  changed_when: true
+
+- name: Disable fstab swap entries persistently
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*[^#\s]\S*\s+\S+\s+swap\s+.*)$'
+    replace: '# disabled by devops-foundation: \1'
+    backup: true
+
+- name: Configure kernel modules
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/devops-foundation.conf
+    content: "overlay\nbr_netfilter\nvxlan\n"
+    mode: '0644'
+
+- name: Inspect loaded kernel modules
+  ansible.builtin.slurp:
+    src: /proc/modules
+  register: loaded_modules
+
+- name: Load missing kernel modules
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop: [overlay, br_netfilter, vxlan]
+  when: "(item ~ ' ') not in (loaded_modules.content | b64decode)"
+  changed_when: true
+
+- name: Configure persistent networking sysctls
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-devops-foundation.conf
+    mode: '0644'
+    content: |
+      net.ipv4.ip_forward = 1
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+
+- name: Read live sysctl values
+  ansible.builtin.command: "sysctl -n {{ item }}"
+  loop:
+    - net.ipv4.ip_forward
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+  register: live_sysctls
+  changed_when: false
+
+- name: Apply networking sysctls when needed
+  ansible.builtin.command: sysctl -p /etc/sysctl.d/99-devops-foundation.conf
+  when: live_sysctls.results | map(attribute='stdout') | unique | list != ['1']
+  changed_when: true
+
+- name: Create apt key directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Install vendored repository signing keys
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../vendor/{{ item.source }}"
+    dest: "/etc/apt/keyrings/{{ item.target }}"
+    mode: '0644'
+  loop:
+    - {source: docker.asc, target: docker.asc}
+    - {source: kubernetes-release.key, target: kubernetes.asc}
+
+- name: Add pinned Kubernetes minor repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    mode: '0644'
+    content: >-
+      deb [signed-by=/etc/apt/keyrings/kubernetes.asc]
+      https://pkgs.k8s.io/core:/stable:/{{ kubernetes_minor }}/deb/ /
+
+- name: Add containerd package repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    mode: '0644'
+    content: >-
+      deb [arch={{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else 'arm64' }}
+      signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable
+
+- name: Install exact Kubernetes and container runtime versions
+  ansible.builtin.apt:
+    name:
+      - "containerd.io={{ containerd_package_version }}"
+      - "kubeadm={{ kubernetes_package_version }}"
+      - "kubelet={{ kubernetes_package_version }}"
+      - "kubectl={{ kubernetes_package_version }}"
+    update_cache: true
+    state: present
+    lock_timeout: 120
+
+- name: Hold infrastructure packages against implicit upgrades
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [containerd.io, kubeadm, kubelet, kubectl]

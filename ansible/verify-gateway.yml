@@ -1,0 +1,7 @@
+---
+- name: Verify the NodePort Gateway path
+  hosts: control_plane
+  become: true
+  gather_facts: false
+  roles:
+    - verify_gateway

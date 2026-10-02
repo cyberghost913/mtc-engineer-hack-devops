@@ -1,0 +1,11 @@
+---
+- name: Check Fluentd delivery using new Gateway requests
+  ansible.builtin.script:
+    cmd: "{{ playbook_dir }}/../scripts/verify_logging.py"
+    executable: /usr/bin/python3
+  register: logging_verification
+  changed_when: false
+
+- name: Show collected log evidence
+  ansible.builtin.debug:
+    var: logging_verification.stdout_lines

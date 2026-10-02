@@ -1,0 +1,13 @@
+---
+- name: Verify HTTP responses and application logs
+  ansible.builtin.script:
+    cmd: >-
+      {{ playbook_dir }}/../scripts/verify_app.py
+      {{ probe_image | quote }} {{ nginx_image | quote }}
+    executable: /usr/bin/python3
+  register: app_verification
+  changed_when: false
+
+- name: Show application verification report
+  ansible.builtin.debug:
+    var: app_verification.stdout_lines

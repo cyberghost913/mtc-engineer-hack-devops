@@ -1,0 +1,58 @@
+---
+groups:
+  - name: devops-lab
+    rules:
+      - alert: ScrapeTargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: A discovered monitoring target cannot be scraped.
+      - alert: MonitoringJobMissing
+        expr: >-
+          absent(up{job="prometheus"}) or absent(up{job="kube-state-metrics"})
+          or absent(up{job="kubernetes-apiserver"}) or absent(up{job="kubelet"})
+          or absent(up{job="kubernetes-resources"}) or absent(up{job="nginx"}) or absent(up{job="envoy"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: An expected scrape job has no targets.
+      - alert: NginxBackendDown
+        expr: nginx_up{job="nginx"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: The exporter cannot read the local Nginx stub_status endpoint.
+      - alert: NginxReplicaMetricsMissing
+        expr: (count(up{job="nginx"}) or vector(0)) < 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Fewer than two Nginx replicas are discovered by Prometheus.
+      - alert: NodeNotReady
+        expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A Kubernetes node is not Ready.
+      - alert: NginxReplicasUnavailable
+        expr: >-
+          kube_deployment_status_replicas_available{namespace="demo",deployment="nginx"}
+          < kube_deployment_spec_replicas{namespace="demo",deployment="nginx"}
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Nginx has fewer available replicas than requested.
+      - alert: ApplicationContainerRestarts
+        expr: increase(kube_pod_container_status_restarts_total{namespace="demo"}[10m]) > 2
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: An application container restarted more than twice in ten minutes.

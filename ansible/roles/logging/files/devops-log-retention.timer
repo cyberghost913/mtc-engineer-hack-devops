@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly retention for finalized DevOps Fluentd archives
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=60
+Unit=devops-log-retention.service
+
+[Install]
+WantedBy=timers.target

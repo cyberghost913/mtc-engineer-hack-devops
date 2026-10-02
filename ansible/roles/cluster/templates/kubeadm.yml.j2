@@ -1,0 +1,34 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ cluster_address | to_json }}
+  bindPort: 6443
+nodeRegistration:
+  name: {{ node_name | to_json }}
+  criSocket: unix:///run/containerd/containerd.sock
+  kubeletExtraArgs:
+    - name: node-ip
+      value: {{ cluster_address | to_json }}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ cluster_name | to_json }}
+kubernetesVersion: v{{ kubernetes_version }}
+controlPlaneEndpoint: "{{ cluster_address }}:6443"
+networking:
+  podSubnet: {{ pod_cidr | to_json }}
+  serviceSubnet: {{ service_cidr | to_json }}
+  dnsDomain: cluster.local
+apiServer:
+  certSANs:
+    - {{ cluster_address | to_json }}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+failSwapOn: true
+rotateCertificates: true
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: iptables
